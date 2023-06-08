@@ -139,7 +139,7 @@ private:
       return env.Undefined();
     }
 
-    float *xb = new float[embeddingsLength];
+    float *embeddingsArrayPointer = new float[embeddingsLength];
     for (size_t i = 0; i < embeddingsLength; i++)
     {
       Napi::Value val = embeddingsToAdd[i];
@@ -149,90 +149,97 @@ private:
             .ThrowAsJavaScriptException();
         return env.Undefined();
       }
-      xb[i] = val.As<Napi::Number>().FloatValue();
+      embeddingsArrayPointer[i] = val.As<Napi::Number>().FloatValue();
     }
 
-    faissIndexPointer->add(divisionResult.quot, xb);
+    faissIndexPointer->add(divisionResult.quot, embeddingsArrayPointer);
 
-    delete[] xb;
+    delete[] embeddingsArrayPointer;
     return env.Undefined();
   }
 
-  Napi::Value search(const Napi::CallbackInfo &info)
+
+  // TODO: do rename again of variables
+  Napi::Value search(const Napi::CallbackInfo& searchArgs)
   {
-    Napi::Env env = info.Env();
-
-    if (info.Length() != 2)
-    {
-      Napi::Error::New(env, "Expected 2 arguments, but got " + std::to_string(info.Length()) + ".")
-          .ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-    if (!info[0].IsArray())
-    {
-      Napi::TypeError::New(env, "Invalid the first argument type, must be an Array.").ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-    if (!info[1].IsNumber())
-    {
-      Napi::TypeError::New(env, "Invalid the second argument type, must be a Number.").ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-
-    const uint32_t k = info[1].As<Napi::Number>().Uint32Value();
-    if (k > faissIndexPointer->ntotal)
-    {
-      Napi::Error::New(env, "Invalid the number of k (cannot be given a value greater than `ntotal`: " +
-                                std::to_string(faissIndexPointer->ntotal) + ").")
-          .ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-
-    Napi::Array arr = info[0].As<Napi::Array>();
-    size_t length = arr.Length();
-    auto dv = std::div(length, faissIndexPointer->d);
-    if (dv.rem != 0)
-    {
-      Napi::Error::New(env, "Invalid the given array length.")
-          .ThrowAsJavaScriptException();
-      return env.Undefined();
-    }
-
-    float *xq = new float[length];
-    for (size_t i = 0; i < length; i++)
-    {
-      Napi::Value val = arr[i];
-      if (!val.IsNumber())
+      Napi::Env env = searchArgs.Env();
+      auto searchArgs_length = searchArgs.Length();
+      if (searchArgs_length != 2)
       {
-        Napi::Error::New(env, "Expected a Number as array item. (at: " + std::to_string(i) + ")")
-            .ThrowAsJavaScriptException();
-        return env.Undefined();
+          Napi::Error::New(env, "Expected 2 arguments, but got " + std::to_string(searchArgs_length) + ".")
+              .ThrowAsJavaScriptException();
+          return env.Undefined();
       }
-      xq[i] = val.As<Napi::Number>().FloatValue();
-    }
 
-    auto nq = dv.quot;
-    idx_t *I = new idx_t[k * nq];
-    float *D = new float[k * nq];
+      auto searchArgs_vectorsToSearchFor = searchArgs[0];
+      if (!searchArgs_vectorsToSearchFor.IsArray())
+      {
+          Napi::TypeError::New(env, "Invalid the first argument type, must be an Array.").ThrowAsJavaScriptException();
+          return env.Undefined();
+      }
 
-    faissIndexPointer->search(nq, xq, k, D, I);
+      auto searchArgs_searchResultLimit = searchArgs[1];
+      if (!searchArgs_searchResultLimit.IsNumber())
+      {
+          Napi::TypeError::New(env, "Invalid the second argument type, must be a Number.").ThrowAsJavaScriptException();
+          return env.Undefined();
+      }
 
-    Napi::Array arr_distances = Napi::Array::New(env, k * nq);
-    Napi::Array arr_labels = Napi::Array::New(env, k * nq);
-    for (size_t i = 0; i < k * nq; i++)
-    {
-      idx_t label = I[i];
-      float distance = D[i];
-      arr_distances[i] = Napi::Number::New(env, distance);
-      arr_labels[i] = Napi::Number::New(env, label);
-    }
-    delete[] I;
-    delete[] D;
+      const uint32_t searchResultLimit = searchArgs_searchResultLimit.As<Napi::Number>().Uint32Value();
+      if (searchResultLimit > faissIndexPointer->ntotal)
+      {
+          Napi::Error::New(env, "Invalid the number of k (cannot be given a value greater than `ntotal`: " +
+              std::to_string(faissIndexPointer->ntotal) + ").")
+              .ThrowAsJavaScriptException();
+          return env.Undefined();
+      }
 
-    Napi::Object results = Napi::Object::New(env);
-    results.Set("distances", arr_distances);
-    results.Set("labels", arr_labels);
-    return results;
+      Napi::Array vectorToSearchFor_asArray = searchArgs_vectorsToSearchFor.As<Napi::Array>();
+      size_t vectorToSearchFor_asArray_length = vectorToSearchFor_asArray.Length();
+      auto divisionResult = std::div(vectorToSearchFor_asArray_length, faissIndexPointer->d);
+      if (divisionResult.rem != 0)
+      {
+          Napi::Error::New(env, "Invalid the given array length.")
+              .ThrowAsJavaScriptException();
+          return env.Undefined();
+      }
+
+      float* vectorToSearchFor = new float[vectorToSearchFor_asArray_length];
+      for (size_t i = 0; i < vectorToSearchFor_asArray_length; i++)
+      {
+          Napi::Value vectorValue = vectorToSearchFor_asArray[i];
+          if (!vectorValue.IsNumber())
+          {
+              Napi::Error::New(env, "Expected a Number as array item. (at: " + std::to_string(i) + ")")
+                  .ThrowAsJavaScriptException();
+              return env.Undefined();
+          }
+          vectorToSearchFor[i] = vectorValue.As<Napi::Number>().FloatValue();
+      }
+
+      auto vectorDimension = divisionResult.quot;
+      const auto totalNumberOfResultVectorValues = searchResultLimit * vectorDimension;
+      idx_t* indexLabelResults = new idx_t[totalNumberOfResultVectorValues];
+      float* indexDistanceResults = new float[totalNumberOfResultVectorValues];
+
+      faissIndexPointer->search(vectorDimension, vectorToSearchFor, searchResultLimit, indexDistanceResults, indexLabelResults);
+
+      Napi::Array distances = Napi::Array::New(env, totalNumberOfResultVectorValues);
+      Napi::Array labels = Napi::Array::New(env, totalNumberOfResultVectorValues);
+      for (size_t i = 0; i < totalNumberOfResultVectorValues; i++)
+      {
+          idx_t label = indexLabelResults[i];
+          float distance = indexDistanceResults[i];
+          distances[i] = Napi::Number::New(env, distance);
+          labels[i] = Napi::Number::New(env, label);
+      }
+      delete[] indexLabelResults;
+      delete[] indexDistanceResults;
+
+      Napi::Object results = Napi::Object::New(env);
+      results.Set("distances", distances);
+      results.Set("labels", labels);
+      return results;
   }
 
   Napi::Value ntotal(const Napi::CallbackInfo &info)
