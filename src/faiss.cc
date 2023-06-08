@@ -90,14 +90,14 @@ public:
           .ThrowAsJavaScriptException();
       return env.Undefined();
     }
-    auto importFilename = readArgs[0];
-    if (!importFilename.IsString())
+    const Napi::Value *importFilename = &readArgs[0];
+    if (!importFilename->IsString())
     {
       Napi::TypeError::New(env, "Invalid the first argument type, must be a string.").ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    std::string *filenamePointer = new std::string(importFilename.As<Napi::String>());
+    std::string *filenamePointer = new std::string(importFilename->As<Napi::String>());
     Napi::FunctionReference *constructor = env.GetInstanceData<Napi::FunctionReference>();
     return constructor->New({ Napi::External<std::string>::New(env, filenamePointer) });
   }
@@ -109,7 +109,7 @@ private:
     return Napi::Boolean::New(args.Env(), faissIndexPointer->is_trained);
   }
 
-  Napi::Value add(const Napi::CallbackInfo & args)
+  Napi::Value add(const Napi::CallbackInfo &args)
   {
     Napi::Env env = args.Env();
 
@@ -121,45 +121,44 @@ private:
       return env.Undefined();
     }
 
-    auto embeddingsArg = args[0];
-    if (!embeddingsArg.IsArray())
+    const Napi::Value* vectorToAddArg = &args[0];
+    if (!vectorToAddArg->IsArray())
     {
       Napi::TypeError::New(env, "Invalid the first argument type, must be an Array.").ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    Napi::Array embeddingsToAdd = embeddingsArg.As<Napi::Array>();
-    size_t embeddingsLength = embeddingsToAdd.Length();
-    auto divisionResult = std::div(embeddingsLength, faissIndexPointer->d);
-    auto embeddingsLengthIsValid = divisionResult.rem == 0;
-    if (embeddingsLengthIsValid)
+    Napi::Array vectorToAddArray = vectorToAddArg->As<Napi::Array>();
+    size_t vectorToAddLength = vectorToAddArray.Length();
+    auto divisionResult = std::div(vectorToAddLength, faissIndexPointer->d);
+    auto vectorHasCorrectDimension = divisionResult.rem == 0;
+    if (!vectorHasCorrectDimension)
     {
       Napi::Error::New(env, "Invalid the given array length.")
           .ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    float *embeddingsArrayPointer = new float[embeddingsLength];
-    for (size_t i = 0; i < embeddingsLength; i++)
+    float* vectorToAddPointer = new float[vectorToAddLength];
+    for (size_t i = 0; i < vectorToAddLength; i++)
     {
-      Napi::Value val = embeddingsToAdd[i];
-      if (!val.IsNumber())
+      Napi::Value vectorValue = vectorToAddArray[i];
+      if (!vectorValue.IsNumber())
       {
         Napi::Error::New(env, "Expected a Number as array item. (at: " + std::to_string(i) + ")")
             .ThrowAsJavaScriptException();
         return env.Undefined();
       }
-      embeddingsArrayPointer[i] = val.As<Napi::Number>().FloatValue();
+      vectorToAddPointer[i] = vectorValue.As<Napi::Number>().FloatValue();
     }
 
-    faissIndexPointer->add(divisionResult.quot, embeddingsArrayPointer);
+    faissIndexPointer->add(divisionResult.quot, vectorToAddPointer);
 
-    delete[] embeddingsArrayPointer;
+    delete[] vectorToAddPointer;
     return env.Undefined();
   }
 
 
-  // TODO: do rename again of variables
   Napi::Value search(const Napi::CallbackInfo& searchArgs)
   {
       Napi::Env env = searchArgs.Env();
@@ -171,21 +170,21 @@ private:
           return env.Undefined();
       }
 
-      auto searchArgs_vectorsToSearchFor = searchArgs[0];
-      if (!searchArgs_vectorsToSearchFor.IsArray())
+      const Napi::Value* searchArgs_vectorsToSearchFor = &searchArgs[0];
+      if (!searchArgs_vectorsToSearchFor->IsArray())
       {
           Napi::TypeError::New(env, "Invalid the first argument type, must be an Array.").ThrowAsJavaScriptException();
           return env.Undefined();
       }
 
-      auto searchArgs_searchResultLimit = searchArgs[1];
-      if (!searchArgs_searchResultLimit.IsNumber())
+      const Napi::Value* searchArgs_searchResultLimit = &searchArgs[1];
+      if (!searchArgs_searchResultLimit->IsNumber())
       {
           Napi::TypeError::New(env, "Invalid the second argument type, must be a Number.").ThrowAsJavaScriptException();
           return env.Undefined();
       }
 
-      const uint32_t searchResultLimit = searchArgs_searchResultLimit.As<Napi::Number>().Uint32Value();
+      const uint32_t searchResultLimit = searchArgs_searchResultLimit->As<Napi::Number>().Uint32Value();
       if (searchResultLimit > faissIndexPointer->ntotal)
       {
           Napi::Error::New(env, "Invalid the number of k (cannot be given a value greater than `ntotal`: " +
@@ -194,7 +193,7 @@ private:
           return env.Undefined();
       }
 
-      Napi::Array vectorToSearchFor_asArray = searchArgs_vectorsToSearchFor.As<Napi::Array>();
+      Napi::Array vectorToSearchFor_asArray = searchArgs_vectorsToSearchFor->As<Napi::Array>();
       size_t vectorToSearchFor_asArray_length = vectorToSearchFor_asArray.Length();
       auto divisionResult = std::div(vectorToSearchFor_asArray_length, faissIndexPointer->d);
       if (divisionResult.rem != 0)
@@ -242,35 +241,37 @@ private:
       return results;
   }
 
-  Napi::Value ntotal(const Napi::CallbackInfo &info)
+  Napi::Value ntotal(const Napi::CallbackInfo &args)
   {
-    return Napi::Number::New(info.Env(), faissIndexPointer->ntotal);
+    return Napi::Number::New(args.Env(), faissIndexPointer->ntotal);
   }
 
-  Napi::Value getDimension(const Napi::CallbackInfo &info)
+  Napi::Value getDimension(const Napi::CallbackInfo &args)
   {
-    return Napi::Number::New(info.Env(), faissIndexPointer->d);
+    return Napi::Number::New(args.Env(), faissIndexPointer->d);
   }
 
-  Napi::Value write(const Napi::CallbackInfo &info)
+  Napi::Value write(const Napi::CallbackInfo &args)
   {
-    Napi::Env env = info.Env();
+    Napi::Env env = args.Env();
 
-    if (info.Length() != 1)
+    if (args.Length() != 1)
     {
-      Napi::Error::New(env, "Expected 1 argument, but got " + std::to_string(info.Length()) + ".")
+      Napi::Error::New(env, "Expected 1 argument, but got " + std::to_string(args.Length()) + ".")
           .ThrowAsJavaScriptException();
       return env.Undefined();
     }
-    if (!info[0].IsString())
+
+    const Napi::Value* filennameValue = &args[0];
+    if (!filennameValue->IsString())
     {
       Napi::TypeError::New(env, "Invalid the first argument type, must be a string.").ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
-    const std::string fname = info[0].As<Napi::String>().Utf8Value();
+    const std::string filename = filennameValue->As<Napi::String>().Utf8Value();
 
-    faiss::write_index(faissIndexPointer.get(), fname.c_str());
+    faiss::write_index(faissIndexPointer.get(), filename.c_str());
 
     return env.Undefined();
   }
